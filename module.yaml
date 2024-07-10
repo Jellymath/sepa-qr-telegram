@@ -1,0 +1,5 @@
+product: jvm/app
+
+dependencies:
+  - dev.inmo:tgbotapi:15.0.0
+  - io.github.g0dkar:qrcode-kotlin:4.1.1
