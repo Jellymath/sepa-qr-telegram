@@ -4,6 +4,7 @@ import dev.inmo.tgbotapi.extensions.api.send.media.sendPhoto
 import dev.inmo.tgbotapi.extensions.api.send.reply
 import dev.inmo.tgbotapi.extensions.api.send.sendMessage
 import dev.inmo.tgbotapi.extensions.api.send.sendTextMessage
+import dev.inmo.tgbotapi.extensions.behaviour_builder.BehaviourContext
 import dev.inmo.tgbotapi.extensions.behaviour_builder.buildBehaviourWithLongPolling
 import dev.inmo.tgbotapi.extensions.behaviour_builder.expectations.waitDataCallbackQuery
 import dev.inmo.tgbotapi.extensions.behaviour_builder.expectations.waitText
@@ -13,6 +14,7 @@ import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.UserId
+import dev.inmo.tgbotapi.types.chat.PreviewChat
 import dev.inmo.tgbotapi.utils.row
 import kotlinx.coroutines.flow.first
 import qrcode.QRCode
@@ -69,22 +71,12 @@ suspend fun main() {
         onCommand("generate") {
             println("generate command for ${it.from} started")
             val accounts = cache[it.from!!.id] ?: emptySet()
-
-            sendMessage(it.chat, "Select alias", replyMarkup = inlineKeyboard {
-                row {
-                    accounts.forEach { account ->
-                        dataButton(account.alias, account.alias)
-                    }
-                    dataButton("No alias", "<Proceed without alias>")
-                }
-            })
-            val alias = waitDataCallbackQuery().first().data
+            val alias = if (accounts.isNotEmpty()) selectAlias(it.chat, accounts) else null
             val iban: String
             val name: String
-            if (alias == "<Proceed without alias>") {
+            if (alias == null) {
                 sendTextMessage(it.chat, "Please enter IBAN for the account")
                 iban = waitText().first().text
-//                oneOf(async { waitText().first().text }, async { waitDataCallbackQuery().first().data })
                 sendTextMessage(it.chat, "Please enter name for the account")
                 name = waitText().first().text
             } else {
@@ -117,10 +109,23 @@ suspend fun main() {
     }.join()
 }
 
+suspend fun BehaviourContext.selectAlias(chat: PreviewChat, accounts: Set<Account>): String? {
+    sendMessage(chat, "Select alias", replyMarkup = inlineKeyboard {
+        row {
+            accounts.forEach { account ->
+                dataButton(account.alias, account.alias)
+            }
+            dataButton("No alias", "<Proceed without alias>")
+        }
+    })
+    val alias = waitDataCallbackQuery().first().data
+    return alias.takeIf { it != "<Proceed without alias>" }
+}
+
 fun sepaQrText(name: String, iban: String, amount: Double, description: String) = """
 BCD
 002
-2
+1
 SCT
 
 $name
