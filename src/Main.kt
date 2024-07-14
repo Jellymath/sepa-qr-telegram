@@ -48,6 +48,15 @@ The bot does not store any information provided for /generate command.
 
 const val description = "Bot that can generate SEPA QR code (formally EPC QR Code) for you"
 
+val botCommands = listOf(
+    BotCommand("generate", "Generate SEPA QR code"),
+    BotCommand("add", "Add account info to use in the future"),
+    BotCommand("remove", "Remove account from the list of saved accounts"),
+    BotCommand("remove_all", "Remove all accounts from the list of saved accounts"),
+    BotCommand("start", "Get introduction for this bot"),
+    BotCommand("privacy", "Learn what data this bot stores and why")
+)
+
 @OptIn(RiskFeature::class)
 suspend fun main() {
     val telegramToken = requireNotNull(System.getenv("TELEGRAM_BOT_TOKEN")) {
@@ -63,8 +72,7 @@ suspend fun main() {
 
             sendTextMessage(it.chat, "Please enter alias for the account")
             val alias = waitText().first().text
-            sendTextMessage(it.chat, "Please enter IBAN for the account")
-            val iban = waitText().first().text
+            val iban = readIban(it.chat)
             sendTextMessage(it.chat, "Please enter name for the account")
             val name = waitText().first().text
 
@@ -110,8 +118,7 @@ suspend fun main() {
             val iban: String
             val name: String
             if (alias == null) {
-                sendTextMessage(it.chat, "Please enter IBAN for the account")
-                iban = waitText().first().text
+                iban = readIban(it.chat)
                 sendTextMessage(it.chat, "Please enter name for the account")
                 name = waitText().first().text
             } else {
@@ -143,18 +150,7 @@ suspend fun main() {
         }
 
         onCommandPrivacy(privacyText)
-
-        setMyCommands(
-            listOf(
-                BotCommand("generate", "Generate SEPA QR code"),
-                BotCommand("add", "Add account info to use in the future"),
-                BotCommand("remove", "Remove account from the list of saved accounts"),
-                BotCommand("remove_all", "Remove all accounts from the list of saved accounts"),
-                BotCommand("start", "Get introduction for this bot"),
-                BotCommand("privacy", "Learn what data this bot stores and why")
-            )
-        )
-
+        setMyCommands(botCommands)
         setMyDescription(description)
         setMyShortDescription(description)
     }.join()
@@ -189,3 +185,26 @@ $description
 
 fun sepaQrCode(name: String, iban: String, amount: Double, description: String) =
     QRCode.ofSquares().build(sepaQrText(name, iban, amount, description)).renderToBytes()
+
+suspend fun BehaviourContext.readIban(chat: PreviewChat): String {
+    sendTextMessage(chat, "Please enter IBAN for the account")
+    var remainingAttempts = 3
+    while (remainingAttempts-- > 0) {
+        val iban = waitText().first().text
+        if (validateIban(iban)) return iban
+        if (remainingAttempts > 0) sendTextMessage(chat, "Invalid IBAN, please try again")
+    }
+    sendTextMessage(chat, "Too many failed attempts, stopping the process")
+    throw IllegalStateException("Too many invalid IBAN attempts")
+}
+
+val validIbanChars = ('0'..'9') + ('A'..'Z') + ' '
+fun validateIban(iban: String): Boolean {
+    if (iban.any { it !in validIbanChars }) return false
+    val filtered = iban.filter { it != ' ' }
+    if (filtered.length !in 15..34) return false
+    val swapped = filtered.drop(4) + filtered.take(4)
+    val digits = swapped.map { if (it.isDigit()) it else it - 'A' + 10 }.joinToString("")
+    val remainder = digits.toBigInteger() % 97.toBigInteger()
+    return remainder == 1.toBigInteger()
+}
