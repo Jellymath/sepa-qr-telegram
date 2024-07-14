@@ -22,7 +22,6 @@ import dev.inmo.tgbotapi.types.chat.PreviewChat
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
 import kotlinx.coroutines.flow.first
-import qrcode.QRCode
 import java.sql.DriverManager
 
 data class Account(val alias: String, val iban: String, val name: String)
@@ -168,23 +167,6 @@ suspend fun BehaviourContext.selectAlias(chat: PreviewChat, aliases: List<String
     val alias = waitDataCallbackQuery().first().data
     return alias.takeIf { it != "<Proceed without alias>" }
 }
-
-fun sepaQrText(name: String, iban: String, amount: Double, description: String) = """
-BCD
-002
-1
-SCT
-
-$name
-$iban
-EUR$amount
-
-
-$description
-""".trimIndent()
-
-fun sepaQrCode(name: String, iban: String, amount: Double, description: String) =
-    QRCode.ofSquares().build(sepaQrText(name, iban, amount, description)).renderToBytes()
 
 suspend fun BehaviourContext.readIban(chat: PreviewChat): String {
     sendTextMessage(chat, "Please enter IBAN for the account")
