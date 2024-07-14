@@ -19,6 +19,7 @@ import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.BotCommand
 import dev.inmo.tgbotapi.types.chat.PreviewChat
+import dev.inmo.tgbotapi.types.message.abstracts.CommonMessage
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
 import kotlinx.coroutines.flow.first
@@ -77,7 +78,7 @@ suspend fun main() {
             sendTextMessage(it.chat, "Please enter name for the account")
             val name = waitText().first().text
 
-            connection.addAccount(it.from!!.id.chatId.long, Account(alias, iban, name))
+            connection.addAccount(it.fromRawId, Account(alias, iban, name))
             sendTextMessage(it.chat, "Account $alias added")
 
             println("Add command for ${it.from} finished")
@@ -85,7 +86,7 @@ suspend fun main() {
 
         onCommand("remove") {
             println("remove command for ${it.from} started")
-            val aliases = connection.getAliases(it.from!!.id.chatId.long)
+            val aliases = connection.getAliases(it.fromRawId)
 
             if (aliases.isEmpty()) {
                 reply(it, "No accounts to remove")
@@ -100,21 +101,21 @@ suspend fun main() {
                 }
             })
             val alias = waitDataCallbackQuery().first().data
-            connection.deleteAccount(it.from!!.id.chatId.long, alias)
+            connection.deleteAccount(it.fromRawId, alias)
             reply(it, "Alias $alias removed")
             println("remove command for ${it.from} finished")
         }
 
         onCommand("remove_all") {
             println("remove_all command for ${it.from} started")
-            connection.deleteAllAccounts(it.from!!.id.chatId.long)
+            connection.deleteAllAccounts(it.fromRawId)
             reply(it, "All accounts removed")
             println("remove_all command for ${it.from} finished")
         }
 
         onCommand("generate") {
             println("generate command for ${it.from} started")
-            val accounts = connection.getAccounts(it.from!!.id.chatId.long)
+            val accounts = connection.getAccounts(it.fromRawId)
             val alias = if (accounts.isNotEmpty()) selectAlias(it.chat, accounts.map { it.alias }) else null
             val iban: String
             val name: String
@@ -180,13 +181,5 @@ suspend fun BehaviourContext.readIban(chat: PreviewChat): String {
     throw IllegalStateException("Too many invalid IBAN attempts")
 }
 
-val validIbanChars = ('0'..'9') + ('A'..'Z') + ' '
-fun validateIban(iban: String): Boolean {
-    if (iban.trim().any { it !in validIbanChars }) return false
-    val filtered = iban.filterNot { it.isWhitespace() }
-    if (filtered.length !in 15..34) return false
-    val swapped = filtered.drop(4) + filtered.take(4)
-    val digits = swapped.map { if (it.isDigit()) it else it - 'A' + 10 }.joinToString("")
-    val remainder = digits.toBigInteger() % 97.toBigInteger()
-    return remainder == 1.toBigInteger()
-}
+@OptIn(RiskFeature::class)
+val CommonMessage<*>.fromRawId get() = from!!.id.chatId.long
