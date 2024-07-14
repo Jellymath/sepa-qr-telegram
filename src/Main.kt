@@ -18,16 +18,14 @@ import dev.inmo.tgbotapi.extensions.utils.types.buttons.dataButton
 import dev.inmo.tgbotapi.extensions.utils.types.buttons.inlineKeyboard
 import dev.inmo.tgbotapi.requests.abstracts.asMultipartFile
 import dev.inmo.tgbotapi.types.BotCommand
-import dev.inmo.tgbotapi.types.UserId
 import dev.inmo.tgbotapi.types.chat.PreviewChat
 import dev.inmo.tgbotapi.utils.RiskFeature
 import dev.inmo.tgbotapi.utils.row
 import kotlinx.coroutines.flow.first
 import qrcode.QRCode
+import java.sql.DriverManager
 
 data class Account(val alias: String, val iban: String, val name: String)
-
-val cache = mutableMapOf<UserId, MutableSet<Account>>()
 
 val startText = """
 Hi! I'm a SEPA QR code generator bot.
@@ -57,11 +55,15 @@ val botCommands = listOf(
     BotCommand("privacy", "Learn what data this bot stores and why")
 )
 
+
 @OptIn(RiskFeature::class)
 suspend fun main() {
     val telegramToken = requireNotNull(System.getenv("TELEGRAM_BOT_TOKEN")) {
         "TELEGRAM_BOT_TOKEN environment variable is not specified"
     }
+    val databaseUrl = System.getenv("DATABASE_URL") ?: "jdbc:sqlite:sepa_qr_bot.db"
+    val connection = DriverManager.getConnection(databaseUrl)
+    connection.createAccountsTable()
     val bot = telegramBot(telegramToken)
 
     bot.buildBehaviourWithLongPolling {
@@ -76,7 +78,7 @@ suspend fun main() {
             sendTextMessage(it.chat, "Please enter name for the account")
             val name = waitText().first().text
 
-            cache.getOrPut(it.from!!.id) { mutableSetOf() } += Account(alias, iban, name)
+            connection.addAccount(it.from!!.id.chatId.long, Account(alias, iban, name))
             sendTextMessage(it.chat, "Account $alias added")
 
             println("Add command for ${it.from} finished")
@@ -84,37 +86,37 @@ suspend fun main() {
 
         onCommand("remove") {
             println("remove command for ${it.from} started")
-            val accounts = cache[it.from!!.id] ?: emptySet()
+            val aliases = connection.getAliases(it.from!!.id.chatId.long)
 
-            if (accounts.isEmpty()) {
+            if (aliases.isEmpty()) {
                 reply(it, "No accounts to remove")
                 return@onCommand
             }
 
             sendMessage(it.chat, "Select alias to remove", replyMarkup = inlineKeyboard {
                 row {
-                    accounts.forEach { account ->
-                        dataButton(account.alias, account.alias)
+                    aliases.forEach { alias ->
+                        dataButton(alias, alias)
                     }
                 }
             })
             val alias = waitDataCallbackQuery().first().data
-            cache.getValue(it.from!!.id).removeIf { it.alias == alias }
+            connection.deleteAccount(it.from!!.id.chatId.long, alias)
             reply(it, "Alias $alias removed")
             println("remove command for ${it.from} finished")
         }
 
         onCommand("remove_all") {
             println("remove_all command for ${it.from} started")
-            cache.remove(it.from!!.id)
+            connection.deleteAllAccounts(it.from!!.id.chatId.long)
             reply(it, "All accounts removed")
             println("remove_all command for ${it.from} finished")
         }
 
         onCommand("generate") {
             println("generate command for ${it.from} started")
-            val accounts = cache[it.from!!.id] ?: emptySet()
-            val alias = if (accounts.isNotEmpty()) selectAlias(it.chat, accounts) else null
+            val accounts = connection.getAccounts(it.from!!.id.chatId.long)
+            val alias = if (accounts.isNotEmpty()) selectAlias(it.chat, accounts.map { it.alias }) else null
             val iban: String
             val name: String
             if (alias == null) {
@@ -156,12 +158,10 @@ suspend fun main() {
     }.join()
 }
 
-suspend fun BehaviourContext.selectAlias(chat: PreviewChat, accounts: Set<Account>): String? {
+suspend fun BehaviourContext.selectAlias(chat: PreviewChat, aliases: List<String>): String? {
     sendMessage(chat, "Select alias", replyMarkup = inlineKeyboard {
         row {
-            accounts.forEach { account ->
-                dataButton(account.alias, account.alias)
-            }
+            aliases.forEach { dataButton(it, it) }
             dataButton("No alias", "<Proceed without alias>")
         }
     })
@@ -200,8 +200,8 @@ suspend fun BehaviourContext.readIban(chat: PreviewChat): String {
 
 val validIbanChars = ('0'..'9') + ('A'..'Z') + ' '
 fun validateIban(iban: String): Boolean {
-    if (iban.any { it !in validIbanChars }) return false
-    val filtered = iban.filter { it != ' ' }
+    if (iban.trim().any { it !in validIbanChars }) return false
+    val filtered = iban.filterNot { it.isWhitespace() }
     if (filtered.length !in 15..34) return false
     val swapped = filtered.drop(4) + filtered.take(4)
     val digits = swapped.map { if (it.isDigit()) it else it - 'A' + 10 }.joinToString("")
