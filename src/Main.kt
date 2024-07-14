@@ -62,8 +62,10 @@ suspend fun main() {
         "TELEGRAM_BOT_TOKEN environment variable is not specified"
     }
     val databaseUrl = System.getenv("DATABASE_URL") ?: "jdbc:sqlite:sepa_qr_bot.db"
+
     val connection = DriverManager.getConnection(databaseUrl)
     connection.createAccountsTable()
+
     val bot = telegramBot(telegramToken)
 
     bot.buildBehaviourWithLongPolling {
