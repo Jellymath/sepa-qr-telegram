@@ -1,4 +1,3 @@
-
 val validIbanChars = ('0'..'9') + ('A'..'Z') + ' '
 
 /**

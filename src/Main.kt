@@ -80,7 +80,7 @@ suspend fun main() {
             sendTextMessage(it.chat, "Please enter name for the account")
             val name = waitText().first().text
 
-            connection.addAccount(it.fromRawId, Account(alias, iban, name))
+            connection.addAccount(it.rawFromId, Account(alias, iban, name))
             sendTextMessage(it.chat, "Account $alias added")
 
             println("Add command for ${it.from} finished")
@@ -88,7 +88,7 @@ suspend fun main() {
 
         onCommand("remove") {
             println("remove command for ${it.from} started")
-            val aliases = connection.getAliases(it.fromRawId)
+            val aliases = connection.getAliases(it.rawFromId)
 
             if (aliases.isEmpty()) {
                 reply(it, "No accounts to remove")
@@ -103,21 +103,21 @@ suspend fun main() {
                 }
             })
             val alias = waitDataCallbackQuery().first().data
-            connection.deleteAccount(it.fromRawId, alias)
+            connection.deleteAccount(it.rawFromId, alias)
             reply(it, "Alias $alias removed")
             println("remove command for ${it.from} finished")
         }
 
         onCommand("remove_all") {
             println("remove_all command for ${it.from} started")
-            connection.deleteAllAccounts(it.fromRawId)
+            connection.deleteAllAccounts(it.rawFromId)
             reply(it, "All accounts removed")
             println("remove_all command for ${it.from} finished")
         }
 
         onCommand("generate") {
             println("generate command for ${it.from} started")
-            val accounts = connection.getAccounts(it.fromRawId)
+            val accounts = connection.getAccounts(it.rawFromId)
             val alias = if (accounts.isNotEmpty()) selectAlias(it.chat, accounts.map { it.alias }) else null
             val iban: String
             val name: String
@@ -131,8 +131,7 @@ suspend fun main() {
                 name = account.name
             }
 
-            sendTextMessage(it.chat, "Please enter amount")
-            val amount = waitText().first().text.toDouble()
+            val amount = readAmount(it.chat)
             sendTextMessage(it.chat, "Please enter description")
             val description = waitText().first().text
 
@@ -183,5 +182,24 @@ suspend fun BehaviourContext.readIban(chat: PreviewChat): String {
     throw IllegalStateException("Too many invalid IBAN attempts")
 }
 
+suspend fun BehaviourContext.readAmount(chat: PreviewChat): Double {
+    sendTextMessage(chat, "Please enter amount")
+    var remainingAttempts = 3
+    while (remainingAttempts-- > 0) {
+        val amount = waitText().first().text.toBigDecimal()
+        if (amount.scale() > 2) {
+            sendTextMessage(chat, "Amount should have no more than 2 decimal places")
+        } else if (amount <= 0.toBigDecimal()) {
+            sendTextMessage(chat, "Amount should be positive")
+        } else if (amount !in 0.01.toBigDecimal()..999999999.99.toBigDecimal()) {
+            sendTextMessage(chat, "Amount must be larger than or equal to 0.01, and cannot be larger than 999999999.99")
+        } else {
+            return amount.toDouble()
+        }
+    }
+    sendTextMessage(chat, "Too many failed attempts, stopping the process")
+    throw IllegalStateException("Too many invalid amount attempts")
+}
+
 @OptIn(RiskFeature::class)
-val CommonMessage<*>.fromRawId get() = from!!.id.chatId.long
+val CommonMessage<*>.rawFromId get() = from!!.id.chatId.long
